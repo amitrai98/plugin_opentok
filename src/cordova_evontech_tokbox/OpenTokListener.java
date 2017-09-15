@@ -11,9 +11,8 @@ import com.opentok.android.Session;
 public interface OpenTokListener {
     void onError(String error_message);
     void onSuccess(String message);
-    void onMessageReceived(String message_type, String message);
     void onSessionConnected(Session session);
-    void onConnecionDestroyed();
+    void onConnecionDestroyed(Connection connection);
     void onConnecitonCreated(Connection connection);
     void onSignalMessageReceived(String type, String data,
                      Connection connection);

@@ -74,7 +74,7 @@ public class MySession extends Session {
     protected void onConnected() {
 //        mPreview = VideoPlugin.layout_publisher;
         try {
-            mSessionListener.onSessionConnected();
+
             SESSION_CONNECTED = true;
                 mPublisher = new Publisher(mContext,
                         "MyPublisher",
@@ -157,6 +157,7 @@ public class MySession extends Session {
     protected void onSignalReceived(String type, String data,
                                     Connection connection) {
         Log.e(TAG , "signal received");
+        mSessionListener.onSignalMessageReceived(type, data, connection);
     }
 
     public void hideVideo() {

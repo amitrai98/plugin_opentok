@@ -36,15 +36,15 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.Calendar;
-import java.util.Date;
-
+import static android.R.attr.data;
+import static android.R.attr.type;
 
 
 /**
  * This class echoes a string called from JavaScript.
  */
-public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListeners , View.OnClickListener{
+public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListeners , View.OnClickListener,
+        Session.SignalListener{
 
     public static final String ACTION_INIT_CALL = "initializeVideoCall";//"initializeVideoCalling";
     public static final String ACTION_ENDCALL = "endCalling";
@@ -107,21 +107,15 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
 
     private JSONObject jsonResponse =null;
     private ConnectionManager manager = null;
-    public Connection connection;
+    public Connection connection_;
 
 
-
-
-    private void coolMethod(String message, CallbackContext callbackContext) {
-        if (message != null && message.length() > 0) {
-            callbackContext.success(message);
-        } else {
-            callbackContext.error("Expected one non-empty string argument.");
-        }
-    }
-
-
-    private boolean connectToSession(final JSONArray args, CallbackContext callbackContext) {
+    /**
+     * connects to the session
+     * @param args
+     * @return
+     */
+    private boolean connectToSession(final JSONArray args) {
         try {
             Gson gson = new Gson();
 //            callBean = gson.fromJson(args.get(0).toString(), CallBean.class);
@@ -132,6 +126,10 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
             messageBean.setToken(Appconstants.TOKEN);
             messageBean.setSessionId(Appconstants.SESSION_ID);
 
+
+            if (manager != null)
+                manager.disconnect();
+
             manager = new ConnectionManager(cordova.getActivity(), messageBean.getApiKey(),
                     messageBean.getSessionId(), new OpenTokListener() {
 
@@ -139,6 +137,7 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
                 @Override
                 public void onError(String error_message) {
                     Log.e(TAG , "on error");
+
                 }
 
                 @Override
@@ -146,37 +145,84 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
                     Log.e(TAG , "on error");
                 }
 
-                @Override
-                public void onMessageReceived(String message_type, String message) {
-                    Log.e(TAG , "message is "+message+" message type "+message_type);
-                }
 
                 @Override
                 public void onSessionConnected(Session session) {
                     try {
-                       Log.e(TAG, "connected to session");
+                        session.setSignalListener(TokBoxPhonegapPlugin.this);
+                        Log.e(TAG, "connected to session");
+                        if (mCallBackContext != null){
+
+                            JSONObject jsonData = new JSONObject();
+                            jsonData.put("sessionId", session.getSessionId());
+                            sendSuccess(jsonData, "SessionConnected");
+                        }
                     }catch (Exception exp){
                         exp.printStackTrace();
                     }
                 }
 
                 @Override
-                public void onConnecionDestroyed() {
+                public void onConnecionDestroyed(Connection connection) {
+                    if (mCallBackContext != null){
 
+                        try {
+                            JSONObject jsonData = new JSONObject();
+                            jsonData.put("ConnectionId", connection.getConnectionId());
+                            jsonData.put("CreationTime", connection.getCreationTime());
+                            jsonData.put("Data", connection.getData());
+                            sendSuccess(jsonData, Appconstants.ConnectionDestroyed);
+                        }catch (Exception exp){
+                            exp.printStackTrace();
+                        }
+
+                    }
                 }
 
                 @Override
                 public void onConnecitonCreated(Connection connection) {
-                    TokBoxPhonegapPlugin.this.connection = connection;
+//                    TokBoxPhonegapPlugin.this.connection = connection;
+
+                    try {
+                        JSONObject jsonData = new JSONObject();
+                        jsonData.put("ConnectionId", connection.getConnectionId());
+                        jsonData.put("CreationTime", connection.getCreationTime());
+                        jsonData.put("Data", connection.getData());
+                        sendSuccess(jsonData, Appconstants.ConnectionCreated);
+                    }catch (Exception exp){
+                        exp.printStackTrace();
+                    }
                 }
 
                 @Override
                 public void onSignalMessageReceived(String type, String data, Connection connection) {
                     Log.e(TAG, "type is "+type +" connection data "+data+" connction id"+connection.getConnectionId());
+
+                    try {
+                        JSONObject responseObject = new JSONObject();
+                        JSONObject messageJson = new JSONObject();
+                        JSONObject jsonConnection = new JSONObject();
+
+                        jsonConnection.put("ConnectionId", connection.getConnectionId());
+                        jsonConnection.put("CreationTime", connection.getCreationTime());
+                        jsonConnection.put("Data", connection.getData());
+
+                        messageJson.put("ConnectionData", jsonConnection);
+                        messageJson.put("MessageBody", data);
+                        messageJson.put("MessageType", type );
+                        responseObject.put("MessageData", messageJson);
+                        sendSuccess(responseObject, Appconstants.SignalReceived);
+                    }catch (Exception exp){
+                        exp.printStackTrace();
+                    }
+
                 }
             });
 
             manager.connect(messageBean.getToken());
+
+
+
 
 
         }catch (Exception exp){
@@ -211,25 +257,26 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
 
             if(action.equalsIgnoreCase(ACTION_INIT_CALL)){
                 //checks current connection bandwidth
-               initVideoCall(action, args, callbackContext);
+                mCallBackContext = callbackContext;
+                initVideoCall(action, args, callbackContext);
             }
 
             else if(action.equalsIgnoreCase(ACTION_ENDCALL)){
                 String object = args.getString(0);
                 mMissedCall = true;
+                mCallBackContext = callbackContext;
                 endCall(object);
             }
 
             else if(action.equalsIgnoreCase(ACTION_SENDMESSAGE)){
-                return  sendMessage(args, callbackContext);
+                mCallBackContext = callbackContext;
+                return  sendMessage(args);
             }
 
             else if(action.equalsIgnoreCase(ACTION_CONNECT_TO_SESSION)){
-                return  connectToSession(args, callbackContext);
+                mCallBackContext = callbackContext;
+                return  connectToSession(args);
             }
-
-
-
         }
         return false;
     }
@@ -241,11 +288,6 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
     private void initCall(CallBean callBean, int CALL_QUALITY) {
         try {
 
-            Calendar date = Calendar.getInstance();
-            Date time = date.getTime();
-
-            Log.e(TAG, ""+time);
-            Log.e(TAG, ""+time.getTime());
 
             mDisconnect = false;
             call_initialized = true;
@@ -302,19 +344,19 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
 //        layout_send_tip = (RelativeLayout) mCallView.findViewById(R.id.layout_send_tip);
 
 //        if (callBean.getUserType().equalsIgnoreCase(Constants.USER_TYPE_PRO)){
-            layout_header_addcredit.setVisibility(View.INVISIBLE);
+        layout_header_addcredit.setVisibility(View.INVISIBLE);
 //        }
 
 
         setMargins(mCallView, 0, 500,0,0);
 
 //        if(callBean.getIsAbleToCall().equalsIgnoreCase("true")){
-            layout_publisher = (RelativeLayout) mCallView.findViewById(R.id.layout_publisher);  // User View
-            layout_publisher.setVisibility(View.VISIBLE);
-            mSession.setmPublisherViewContainer(layout_publisher);
+        layout_publisher = (RelativeLayout) mCallView.findViewById(R.id.layout_publisher);  // User View
+        layout_publisher.setVisibility(View.VISIBLE);
+        mSession.setmPublisherViewContainer(layout_publisher);
 
-            RelativeLayout layout_subscriber = (RelativeLayout) mCallView.findViewById(R.id.layout_subscriber);  // Subscriber View
-            mSession.setmSubscribersViewContainer(layout_subscriber);
+        RelativeLayout layout_subscriber = (RelativeLayout) mCallView.findViewById(R.id.layout_subscriber);  // Subscriber View
+        mSession.setmSubscribersViewContainer(layout_subscriber);
 //        }
 
 
@@ -641,9 +683,49 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
     }
 
     @Override
-    public void onSessionConnected() {
+    public void onSessionConnected(Session session) {
+        session.setSignalListener(TokBoxPhonegapPlugin.this);
+        try {
+            session.setSignalListener(TokBoxPhonegapPlugin.this);
+            Log.e(TAG, "connected to session");
+            if (mCallBackContext != null){
+
+                JSONObject jsonData = new JSONObject();
+                jsonData.put("sessionId", session.getSessionId());
+                sendSuccess(jsonData, "SessionConnected");
+            }
+        }catch (Exception exp){
+            exp.printStackTrace();
+        }
 
     }
+
+    @Override
+    public void onSignalMessageReceived(String type, String data, Connection connection) {
+        Log.e(TAG, "type is "+type +" connection data "+data+" connction id"+connection.getConnectionId());
+
+        try {
+            JSONObject responseObject = new JSONObject();
+            JSONObject messageJson = new JSONObject();
+            JSONObject jsonConnection = new JSONObject();
+
+            jsonConnection.put("ConnectionId", connection.getConnectionId());
+            jsonConnection.put("CreationTime", connection.getCreationTime());
+            jsonConnection.put("Data", connection.getData());
+
+            messageJson.put("ConnectionData", jsonConnection);
+            messageJson.put("MessageBody", data);
+            messageJson.put("MessageType", type );
+            responseObject.put("MessageData", messageJson);
+            sendSuccess(responseObject, Appconstants.SignalReceived);
+        }catch (Exception exp){
+            exp.printStackTrace();
+        }
+
+    }
+
+
+
 
 
     /**
@@ -1245,540 +1327,9 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
         }
     }
 
-//    /**
-//     * shows low balance warning
-//     */
-//    private void showLowBalanceWarning(final boolean isPro, final String amount){
-//
-//        playAudio(cordova.getActivity(),"alert_asterisk_13.mp3");
-//        cordova.getActivity().runOnUiThread(new Runnable() {
-//            @Override
-//            public void run() {
-//                try{
-//                    if (isPro && txt_low_balance != null){
-//                        txt_low_balance.setText(Html.fromHtml("<font color=\"#ffffff\">" + "User has low balance " + "</font>"));
-//                        layout_low_credit.setVisibility(View.VISIBLE);
-//                    }
-//                    else if(txt_low_balance != null){
-//                        txt_low_balance.setText(Html.fromHtml("<font color=\"#ffffff\">" + "LOW CREDIT WARNING..." + "</font>" + "<font color=\"#F0AF32\">" + amount));
-//                        layout_low_credit.setVisibility(View.VISIBLE);
-//                    }
-//
-//                }catch (Exception e){
-//                    e.printStackTrace();
-//                }
-//
-//            }
-//        });
-//    }
-
-//    /**
-//     * shows credit dialog to send
-//     * money from one dialog to another
-//     */
-//    private void showTipDialog(){
-//        try{
-//
-//            layout_low_credit.setVisibility(View.INVISIBLE);
-//            layout_tip_send_receive.setVisibility(View.INVISIBLE);
-////            layout_send_tip.setVisibility(View.VISIBLE);
-//
-//            cordova.getActivity().runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//                    // custom dialog
-//                    // custom dialog
-//                    dialogTip = new Dialog(cordova.getActivity());
-//                    dialogTip.setContentView(R.layout.send_tip);
-//                    dialogTip.getWindow().setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
-//                    WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-//                    lp.copyFrom(dialogTip.getWindow().getAttributes());
-//                    DisplayMetrics displaymetrics = new DisplayMetrics();
-//                    cordova.getActivity().getWindowManager().getDefaultDisplay().getMetrics(displaymetrics);
-//                    int height = displaymetrics.heightPixels;
-//                    int width = displaymetrics.widthPixels;
-//
-//
-//
-//                    layout_close =  (RelativeLayout) dialogTip.findViewById(R.id.layout_close);
-//
-//                    layout_addmore =  (LinearLayout) dialogTip.findViewById(R.id.layout_addmore);
-//                    btn_sendtip =  (Button) dialogTip.findViewById(R.id.btn_sendtip);
-//                    btn_ten_dollar =  (Button) dialogTip.findViewById(R.id.btn_ten_dollar);
-//                    btn_twenty_dollar =  (Button) dialogTip.findViewById(R.id.btn_twenty_dollar);
-//                    btn_fourty_dollar =  (Button) dialogTip.findViewById(R.id.btn_fourty_dollar);
-//                    btn_sixty_dollar =  (Button) dialogTip.findViewById(R.id.btn_sixty_dollar);
-//                    edt_tipamount =  (EditText) dialogTip.findViewById(R.id.edt_tipamount);
-//                    layout_progress_tip =  (LinearLayout) dialogTip.findViewById(R.id.layout_progress_tip);
-//                    layout_others =  (RelativeLayout) dialogTip.findViewById(R.id.layout_others);
-//                    txt_creditbal = (TextView) dialogTip.findViewById(R.id.txt_creditbal);
-//                    btn_lowbal =  (Button) dialogTip.findViewById(R.id.btn_lowbal);
-//
-//                    layout_close.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            dialogTip.dismiss();
-//                        }
-//                    });
-//                    layout_addmore.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            dialogTip.dismiss();
-//                            showAddAmountDialog();
-//                        }
-//                    });
-//                    btn_sendtip.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//
-//                            try {
-//                                InputMethodManager imm = (InputMethodManager)cordova.
-//                                        getActivity().getSystemService(Context.INPUT_METHOD_SERVICE);
-//                                imm.hideSoftInputFromWindow(edt_tipamount.getWindowToken(), 0);
-//                            }catch (Exception e){
-//                                e.printStackTrace();
-//                            }
-//
-//                            String tipAmount = edt_tipamount.getText().toString();
-//                            if(!tipAmount.isEmpty()){
-//                                sendCreditTip(tipAmount, true);
-//                            }else
-//                                edt_tipamount.setError("enter tip amount");
-//
-//
-//                        }
-//                    });
-//                    btn_ten_dollar.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.TEN_DOLLARS, true);
-//                        }
-//                    });
-//                    btn_twenty_dollar.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.TWENTY_DOLLARS, true);
-//                        }
-//                    });
-//                    btn_fourty_dollar.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.FOURTY_DOLLARS, true);
-//                        }
-//                    });
-//                    btn_sixty_dollar.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.SIXTY_DOLLARS, true);
-//                        }
-//                    });
-//
-//
-//                    lp.width = (int)(width * 0.8);
-//                    lp.height = (int)(height * 0.8);
-//                    dialogTip.show();
-//                    dialogTip.getWindow().setAttributes(lp);
-//                    dialogTip.show();
-//                    updateUserBalance(mUserBalance);
-//                }
-//            });
-//
-//        }catch (Exception e){
-//            e.printStackTrace();
-//        }
-//    }
-
-//    /**
-//     * add more credit
-//     */
-//    private void addMoreCredit(){
-//
-//    }
 
 
-//    /**
-//     * sennds amount to different users
-//     * @param amount to be sent to other users
-//     * @param isTip if it is a tip or a credit
-//     */
-//    private void sendCreditTip(final String amount, final boolean isTip){
-//        try {
-//            cordova.getActivity().runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//                    int tipamount = Integer.parseInt(amount);
-//                    int currentbal = Integer.parseInt(mUserBalance);
-//                    if (!amount.isEmpty()){
-//                        if(currentbal < tipamount && isTip){
-//                            if(isTip){
-//                                btn_lowbal.setVisibility(View.VISIBLE);
-//                                Timer timer = new Timer();
-//                                timer.schedule(new TimerTask() {
-//                                    public void run() {
-//                                        cordova.getActivity().runOnUiThread(new Runnable() {
-//                                            @Override
-//                                            public void run() {
-//                                                btn_lowbal.setVisibility(View.INVISIBLE);
-//                                            }
-//                                        });
-//                                    }
-//                                }, 2000);
-//                            }
-//
-//                        }else {
-//                            if(isTip){
-//                                layout_progress_tip.setVisibility(View.VISIBLE);
-//                                layout_others.setVisibility(View.GONE);
-//                            }else {
-//                                layout_credit_btns.setVisibility(View.INVISIBLE);
-//                                layout_progress.setVisibility(View.VISIBLE);
-//                            }
-//
-//                            JSONObject sendTipJson = new JSONObject();
-//                            JSONObject dataJson = new JSONObject();
-//                            try {
-//                                if(isTip)
-//                                    dataJson.put("type","tip");
-//                                else
-//                                    dataJson.put("type","credit");
-//
-//                                dataJson.put("amount",""+tipamount);
-//                                sendTipJson.put("status", "transaction");
-//                                sendTipJson.put("data", dataJson);
-//                                Log.e(TAG, ""+sendTipJson.toString());
-//                                mCallBackContext.successMessage(sendTipJson);
-//                            } catch (JSONException e) {
-//                                e.printStackTrace();
-//                            }
-//                        }
-//                    }
-//                }
-//            });
-//
-//        }catch (Exception e){
-//            e.printStackTrace();
-//        }
-//    }
-
-//    /**
-//     * shows amount to be added
-//     */
-//    private void showAddAmountDialog(){
-//        try{
-//
-//            layout_low_credit.setVisibility(View.INVISIBLE);
-//            layout_tip_send_receive.setVisibility(View.INVISIBLE);
-////            layout_send_tip.setVisibility(View.VISIBLE);
-//
-//            cordova.getActivity().runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//
-//                    dialogAddAmount = new Dialog(cordova.getActivity());
-//                    dialogAddAmount.setContentView(R.layout.buy_credit);
-//                    dialogAddAmount.getWindow().setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
-//                    WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-//                    lp.copyFrom(dialogAddAmount.getWindow().getAttributes());
-//                    DisplayMetrics displaymetrics = new DisplayMetrics();
-//                    cordova.getActivity().getWindowManager().getDefaultDisplay().getMetrics(displaymetrics);
-//                    int height = displaymetrics.heightPixels;
-//                    int width = displaymetrics.widthPixels;
-//
-//
-//                    layout_close_add_credit = (RelativeLayout) dialogAddAmount.findViewById(R.id.layout_close_add_credit);
-//
-//
-//                    btn_buy_ten =  (Button) dialogAddAmount.findViewById(R.id.btn_buy_ten);
-//                    btn_buy_twetnty =  (Button) dialogAddAmount.findViewById(R.id.btn_buy_twetnty);
-//                    btn_buy_fourty =  (Button) dialogAddAmount.findViewById(R.id.btn_buy_fourty);
-//                    btn_buy_sixty =  (Button) dialogAddAmount.findViewById(R.id.btn_buy_sixty);
-//                    layout_progress = (LinearLayout) dialogAddAmount.findViewById(R.id.layout_progress);
-//                    layout_credit_btns = (LinearLayout) dialogAddAmount.findViewById(R.id.layout_credit_btns);
-//                    txt_creditbal = (TextView) dialogAddAmount.findViewById(R.id.txt_creditbal);
-//
-//                    layout_close_add_credit.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            dialogAddAmount.dismiss();
-//                        }
-//                    });
-//                    btn_buy_ten.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.TEN_DOLLARS, false);
-//                        }
-//                    });
-//                    btn_buy_twetnty.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.TWENTY_DOLLARS, false);
-//                        }
-//                    });
-//                    btn_buy_fourty.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.FOURTY_DOLLARS, false);
-//                        }
-//                    });
-//                    btn_buy_sixty.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            sendCreditTip(Constants.SIXTY_DOLLARS, false);
-//                        }
-//                    });
-//
-//
-//                    lp.width = (int)(width * 0.8);
-//                    lp.height = (int)(height * 0.8);
-//                    dialogAddAmount.show();
-//                    dialogAddAmount.getWindow().setAttributes(lp);
-//                    dialogAddAmount.show();
-//                    updateUserBalance(mUserBalance);
-//                }
-//            });
-//
-//        }catch (Exception e){
-//            e.printStackTrace();
-//        }
-//    }
-//
-//    /**
-//     * shows dialog on screen if user has received or send any tip
-//     * @param amount to be sent or received
-//     * @param isReceived or sent
-//     */
-//    private void showTipSendReceive(final String amount, final boolean isReceived){
-//        try {
-//            if(txt_tipsent ==null)
-//                return;
-//            cordova.getActivity().runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//                    if(isReceived){
-//                        txt_tipsent.setText(cordova.getActivity().
-//                                getString(R.string.tip_received_value, amount));
-//                        playAudio(cordova.getActivity(),"Attack_MetalBlip01.mp3");
-//                    }
-//                    else
-//                        txt_tipsent.setText(cordova.getActivity().
-//                                getString(R.string.tip_sent_value, amount));
-//                }
-//            });
-//
-//
-//            cordova.getActivity().runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//                    layout_tip_send_receive.setVisibility(View.VISIBLE);
-//                }
-//            });
-//            Timer timer = new Timer();
-//            timer.schedule(new TimerTask() {
-//                public void run() {
-//
-//                    cordova.getActivity().runOnUiThread(new Runnable() {
-//                        @Override
-//                        public void run() {
-//                            layout_tip_send_receive.setVisibility(View.INVISIBLE);
-//                        }
-//                    });
-//                }
-//            }, 4000);
-//        }catch (Exception e){
-//            e.printStackTrace();
-//        }
-//    }
-
-
-//    /**
-//     * updates user balance
-//     * @param mUserBalance is the credit balance of the user
-//     */
-//    private void updateUserBalance(final String mUserBalance){
-//        try {
-//            cordova.getActivity().runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//                    if (dialogAddAmount != null && dialogAddAmount.isShowing() &&
-//                            txt_creditbal != null ){
-//                        txt_creditbal.setText(Html.fromHtml("<font color=\"#c5c5c5\">" + "You have " + "</font>" + "<font color=\"#F0AF32\">" + mUserBalance+ "</font>"+ "<font color=\"#c5c5c5\">" + " credits"+"</font>"));
-//                    }else if(dialogTip != null && dialogTip.isShowing() &&
-//                            txt_creditbal != null ){
-//                        txt_creditbal.setText(Html.fromHtml("<font color=\"#c5c5c5\">" + "You have " + "</font>" + "<font color=\"#F0AF32\">" + mUserBalance+ "</font>"+ "<font color=\"#c5c5c5\">" + " credits"+"</font>"));
-//                    }else if(dialogCreditSuccess != null && dialogCreditSuccess.isShowing()
-//                            && txt_creditbal != null){
-//                        txt_creditbal.setText(Html.fromHtml("<font color=\"#c5c5c5\">" + "You have " + "</font>" + "<font color=\"#F0AF32\">" + mUserBalance+ "</font>"+ "<font color=\"#c5c5c5\">" + " credits"+"</font>"));
-//                    }
-//                }
-//            });
-//
-//        }catch (Exception e){
-//            e.printStackTrace();
-//        }
-//    }
-
-
-//    /**
-//     * calculates band-width speed
-//     */
-//    private void getBandWidthSpeed(final SpeedTestListener speedTestListener){
-//        SpeedTestSocket speedTestSocket = new SpeedTestSocket();
-//        speedTestSocket.addSpeedTestListener(new ISpeedTestListener() {
-//            @Override
-//            public void onDownloadPacketsReceived(final long packetSize, final float transferRateBitPerSeconds, final
-//            float transferRateOctetPerSeconds) {
-//                float current_speed = (transferRateBitPerSeconds / Constants.VALUE_PER_SECONDS);
-//                if(current_speed < Constants.MIN){
-//                    speedTestListener.onDownloadComplete(Constants.LOW);
-//                }else if(current_speed >Constants.MIN && current_speed <Constants.MAX){
-//                    speedTestListener.onDownloadComplete(Constants.MEDIUM);
-//                }else if(current_speed > Constants.MAX){
-//                    speedTestListener.onDownloadComplete(Constants.HIGH);
-//                }
-////                LogUtils.logFinishedTask(SpeedTestMode.DOWNLOAD, packetSize, transferRateBitPerSeconds,
-////                        transferRateOctetPerSeconds, true);
-//
-//            }
-//
-//            @Override
-//            public void onDownloadError(final SpeedTestError speedTestError, final String errorMessage) {
-////                if (true) {
-//                speedTestListener.onDownloadFailed();
-//                LOG.e(TAG, "Download error " + speedTestError + " : " + errorMessage);
-////                }
-//            }
-//
-//            @Override
-//            public void onUploadPacketsReceived(final long packetSize, final float transferRateBitPerSeconds, final
-//            float transferRateOctetPerSeconds) {
-//
-////                LogUtils.logFinishedTask(SpeedTestMode.UPLOAD, packetSize, transferRateBitPerSeconds,
-////                        transferRateOctetPerSeconds, true);
-//
-//                float current_speed = (transferRateBitPerSeconds / Constants.VALUE_PER_SECONDS);
-//                if(current_speed < Constants.MIN){
-//                    speedTestListener.onDownloadComplete(Constants.LOW);
-//                }else if(current_speed >Constants.MIN && current_speed <Constants.MAX){
-//                    speedTestListener.onDownloadComplete(Constants.MEDIUM);
-//                }else if(current_speed > Constants.MAX){
-//                    speedTestListener.onDownloadComplete(Constants.HIGH);
-//                }
-//
-//            }
-//
-//            @Override
-//            public void onUploadError(final SpeedTestError speedTestError, final String errorMessage) {
-////                if (true) {
-//                Log.e(TAG,"Upload error " + speedTestError + " : " + errorMessage);
-////                }
-//            }
-//
-//            @Override
-//            public void onDownloadProgress(final float percent, final SpeedTestReport downloadReport) {
-//
-////                LogUtils.logSpeedTestReport(downloadReport, LOGGER, true);
-//            }
-//
-//            @Override
-//            public void onUploadProgress(final float percent, final SpeedTestReport uploadReport) {
-//
-////                LogUtils.logSpeedTestReport(uploadReport, LOGGER, true);
-//            }
-//
-//        });
-//
-//
-//        speedTestSocket.startDownload(Constants.SPEED_TEST_SERVER_HOST,
-//                Constants.SPEED_TEST_SERVER_PORT, Constants.SPEED_TEST_SERVER_URI_DL);
-//    }
-
-//
-//    /**
-//     * shows credit added success message
-//     * @param amount current user balance
-//     */
-//    private void showCreditSuccessDialog(final String amount){
-//        try{
-//
-//            layout_low_credit.setVisibility(View.INVISIBLE);
-//            layout_tip_send_receive.setVisibility(View.INVISIBLE);
-////            layout_send_tip.setVisibility(View.VISIBLE);
-//
-//            cordova.getActivity().runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//
-//                    dialogCreditSuccess = new Dialog(cordova.getActivity());
-//                    dialogCreditSuccess.setContentView(R.layout.credit_added);
-//                    dialogCreditSuccess.getWindow().setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
-//                    WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
-//                    lp.copyFrom(dialogCreditSuccess.getWindow().getAttributes());
-//                    DisplayMetrics displaymetrics = new DisplayMetrics();
-//                    cordova.getActivity().getWindowManager().getDefaultDisplay().getMetrics(displaymetrics);
-//                    int height = displaymetrics.heightPixels;
-//                    int width = displaymetrics.widthPixels;
-//
-//                    layout_close = (RelativeLayout) dialogCreditSuccess.findViewById(R.id.layout_close);
-//                    layout_addmore =  (LinearLayout) dialogCreditSuccess.findViewById(R.id.layout_addmore);
-//                    txt_creditbal = (TextView) dialogCreditSuccess.findViewById(R.id.txt_creditbal);
-//
-//                    layout_close.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            dialogCreditSuccess.dismiss();
-//                        }
-//                    });
-//
-//                    layout_addmore.setOnClickListener(new View.OnClickListener() {
-//                        @Override
-//                        public void onClick(View v) {
-//                            dialogCreditSuccess.dismiss();
-//                            showAddAmountDialog();
-//                        }
-//                    });
-//
-//                    lp.width = (int)(width * 0.8);
-//                    lp.height = (int)(height * 0.8);
-//                    dialogCreditSuccess.show();
-//                    dialogCreditSuccess.getWindow().setAttributes(lp);
-//                    dialogCreditSuccess.show();
-//                    updateUserBalance(mUserBalance);
-//                    txt_creditbal.setText(Html.fromHtml("<font color=\"#c5c5c5\">" + "You have " + "</font>" + "<font color=\"#F0AF32\">" + amount+ "</font>"+ "<font color=\"#c5c5c5\">" + " credits"+"</font>"));
-//                }
-//            });
-//
-//        }catch (Exception e){
-//            e.printStackTrace();
-//        }
-//    }
-
-
-//    /**
-//     * checks conneciton type
-//     */
-//    private String getNetworkInfo(){
-//        String networkType= "unknown";
-//        try {
-//
-//            NetworkInfo type = Connectivity.getNetworkInfo(cordova.getActivity());
-//            Log.e(TAG, ""+type);
-//            if(!type.getTypeName().equalsIgnoreCase("WIFI")){
-//                networkType = Connectivity.getNetworkClass(cordova.getActivity());
-//            }else
-//                networkType = "wifi";
-//
-//        }catch (Exception e){
-//            e.printStackTrace();
-//        }
-//
-//        return networkType;
-//    }
-
-
-
-
-
-    private boolean sendMessage(JSONArray args, CallbackContext callbackContext){
+    private boolean sendMessage(JSONArray args){
         try {
             Gson gson = new Gson();
             callBean = gson.fromJson(args.get(0).toString(), CallBean.class);
@@ -1789,8 +1340,9 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
             messageBean.setToken(Appconstants.TOKEN);
             messageBean.setSessionId(Appconstants.SESSION_ID);
 
-            if (manager == null && connection == null){
+            if (manager == null ){
                 manager = new ConnectionManager(cordova.getActivity(), messageBean.getApiKey(), messageBean.getSessionId(), new OpenTokListener() {
+
                     @Override
                     public void onError(String error_message) {
                         Log.e(TAG , "on error");
@@ -1801,46 +1353,118 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
                         Log.e(TAG , "on error");
                     }
 
-                    @Override
-                    public void onMessageReceived(String message_type, String message) {
-                        Log.e(TAG , "message is "+message+" message type "+message_type);
-                    }
 
                     @Override
                     public void onSessionConnected(Session session) {
+
+                        session.setSignalListener(TokBoxPhonegapPlugin.this);
+
+//                        try {
+//                            SignalMessage message = new SignalMessage(messageBean.getMessageData().getMessageType(),
+//                                    messageBean.getMessageData().getMessageBody());
+//                            if (manager != null && messageBean.getMessageData().getConnectionData() != null){
+//                                MessageBean.ConnectionData data = messageBean.getMessageData().getConnectionData();
+////                            long connection_time = Long.parseLong(data.getConnectionId());
+//                        OpentokConnection  connection = new OpentokConnection(data.getConnectionId(), data.getData(), 0);
+//                                if (connection != null)
+//                                    sendMessage(message, connection);
+//                                else
+//                                    sendGroupMessage(message);
+//                            }
+//                        }catch (Exception exp){
+//                            exp.printStackTrace();
+//                        }
+
+
+                        try {
+                            Log.e(TAG, "connected to session");
+                            if (mCallBackContext != null){
+
+                                JSONObject jsonData = new JSONObject();
+                                jsonData.put("sessionId", session.getSessionId());
+                                sendSuccess(jsonData, "SessionConnected");
+                            }
+                        }catch (Exception exp){
+                            exp.printStackTrace();
+                        }
+                    }
+
+                    @Override
+                    public void onConnecionDestroyed(Connection connection) {
+                        if (mCallBackContext != null){
+
+                            try {
+                                JSONObject jsonData = new JSONObject();
+                                jsonData.put("ConnectionId", connection.getConnectionId());
+                                jsonData.put("CreationTime", connection.getCreationTime());
+                                jsonData.put("Data", connection.getData());
+                                sendSuccess(jsonData, Appconstants.ConnectionDestroyed);
+                            }catch (Exception exp){
+                                exp.printStackTrace();
+                            }
+
+                        }
+                    }
+
+                    @Override
+                    public void onConnecitonCreated(Connection connection) {
+//                        TokBoxPhonegapPlugin.this.connection = connection;
+
+                        try {
+                            JSONObject jsonData = new JSONObject();
+                            jsonData.put("ConnectionId", connection.getConnectionId());
+                            jsonData.put("CreationTime", connection.getCreationTime());
+                            jsonData.put("Data", connection.getData());
+                            sendSuccess(jsonData, Appconstants.ConnectionCreated);
+                        }catch (Exception exp){
+                            exp.printStackTrace();
+                        }
+
+
+
+
                         try {
                             SignalMessage message = new SignalMessage(messageBean.getMessageData().getMessageType(),
                                     messageBean.getMessageData().getMessageBody());
                             if (manager != null && messageBean.getMessageData().getConnectionData() != null){
                                 MessageBean.ConnectionData data = messageBean.getMessageData().getConnectionData();
 //                            long connection_time = Long.parseLong(data.getConnectionId());
-//                                OpentokConnection  connection = new OpentokConnection(data.getConnectionId(), data.getData(), 0);
-                                sendMessage(message, connection);
-//                            sendGroupMessage(message);
+                                OpentokConnection  msgConnection = new OpentokConnection(data.getConnectionId(), data.getData(), 0);
+                                if (connection != null)
+                                    sendMessage(message, msgConnection);
+                                else
+                                    sendGroupMessage(message);
                             }
                         }catch (Exception exp){
                             exp.printStackTrace();
                         }
-
-
-                    }
-
-                    @Override
-                    public void onConnecitonCreated(Connection connection) {
-                        TokBoxPhonegapPlugin.this.connection = connection;
-                    }
-
-                    @Override
-                    public void onConnecionDestroyed() {
 
                     }
 
                     @Override
                     public void onSignalMessageReceived(String type, String data, Connection connection) {
                         Log.e(TAG, "type is "+type +" connection data "+data+" connction id"+connection.getConnectionId());
+
+                        try {
+                            JSONObject responseObject = new JSONObject();
+                            JSONObject messageJson = new JSONObject();
+                            JSONObject jsonConnection = new JSONObject();
+
+                            jsonConnection.put("ConnectionId", connection.getConnectionId());
+                            jsonConnection.put("CreationTime", connection.getCreationTime());
+                            jsonConnection.put("Data", connection.getData());
+
+                            messageJson.put("ConnectionData", jsonConnection);
+                            messageJson.put("MessageBody", data);
+                            messageJson.put("MessageType", type );
+                            responseObject.put("MessageData", messageJson);
+                            sendSuccess(responseObject, Appconstants.SignalReceived);
+                        }catch (Exception exp){
+                            exp.printStackTrace();
+                        }
+
                     }
                 });
-
                 manager.connect(messageBean.getToken());
             }else {
                 try {
@@ -1849,8 +1473,12 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
                     if (manager != null && messageBean.getMessageData().getConnectionData() != null){
                         MessageBean.ConnectionData data = messageBean.getMessageData().getConnectionData();
 //                            long connection_time = Long.parseLong(data.getConnectionId());
-//                        OpentokConnection  connection = new OpentokConnection(data.getConnectionId(), data.getData(), 0);
-                        sendMessage(message, connection);
+                        OpentokConnection  connection = new OpentokConnection(data.getConnectionId(), data.getData(), 0);
+                        if (connection != null)
+                            sendMessage(message, connection);
+                        else
+                            sendGroupMessage(message);
+//                        sendMessage(message, connection);
 //                            sendGroupMessage(message);
                     }
                 }catch (Exception exp){
@@ -1895,12 +1523,98 @@ public class TokBoxPhonegapPlugin extends CordovaPlugin implements SessionListen
 
     public void pushResultToPlugin(PluginResult.Status status, JSONObject jsonObject){
         try {
-            PluginResult result = new PluginResult(status, jsonObject);
-            mCallBackContext.sendPluginResult(result);
+//            PluginResult result = new PluginResult(status, jsonObject);
+//            mCallBackContext.sendPluginResult(result);
+
+            try {
+                JSONObject jsonResponse = new JSONObject();
+                jsonResponse.put("data", jsonObject);
+                jsonResponse.put("message", "");
+                if (status == PluginResult.Status.OK ){
+                    jsonResponse.put("status", "success");
+                    PluginResult result = new PluginResult(PluginResult.Status.OK, jsonResponse);
+                    if (mCallBackContext != null)
+                        mCallBackContext.sendPluginResult(result);
+                }
+                else{
+                    jsonResponse.put("status", "failure");
+                    PluginResult result = new PluginResult(PluginResult.Status.ERROR, jsonResponse);
+                    if (mCallBackContext != null)
+                        mCallBackContext.sendPluginResult(result);
+                }
+
+
+
+            }catch (Exception exp){
+                exp.printStackTrace();
+            }
+
+
         }catch (Exception exp){
             exp.printStackTrace();
         }
 
     }
 
+
+    /**
+     * sends success json to js
+     * @param jsonData
+     * @param message
+     */
+    private void sendSuccess(JSONObject jsonData, String message){
+        try {
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("data", jsonData);
+            jsonObject.put("message", message);
+            jsonObject.put("status", "success");
+
+
+            PluginResult result = new PluginResult(PluginResult.Status.OK, jsonObject);
+            if (mCallBackContext != null)
+                mCallBackContext.sendPluginResult(result);
+        }catch (Exception exp){
+            exp.printStackTrace();
+        }
+
+    }
+
+    /**
+     * sends error json to js
+     * @param jsonData
+     * @param errorMessage
+     */
+    private void sendError(JSONObject jsonData, String errorMessage){
+        try {
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("data", jsonData);
+            jsonObject.put("message", errorMessage);
+            jsonObject.put("status", "failure");
+
+
+            PluginResult result = new PluginResult(PluginResult.Status.ERROR, jsonObject);
+            if (mCallBackContext != null)
+                mCallBackContext.sendPluginResult(result);
+        }catch (Exception exp){
+            exp.printStackTrace();
+        }
+    }
+
+    @Override
+    public void onSignalReceived(Session session, String s, String s1, Connection connection) {
+        try {
+            JSONObject messageJson = new JSONObject();
+            JSONObject jsonConnection = new JSONObject();
+            jsonConnection.put("ConnectionId", connection.getConnectionId());
+            jsonConnection.put("CreationTime", connection.getCreationTime());
+            jsonConnection.put("Data", connection.getData());
+
+            messageJson.put("MessageData", jsonConnection);
+            messageJson.put("MessageBody", data);
+            messageJson.put("MessageType", type);
+            sendSuccess(messageJson, Appconstants.SignalReceived);
+        }catch (Exception exp){
+            exp.printStackTrace();
+        }
+    }
 }

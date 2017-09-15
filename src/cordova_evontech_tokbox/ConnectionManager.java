@@ -105,7 +105,7 @@ public class ConnectionManager extends Session{
     @Override
     protected void onConnectionDestroyed(Connection connection) {
         super.onConnectionDestroyed(connection);
-        mSessionListener.onConnecionDestroyed();
+        mSessionListener.onConnecionDestroyed(connection);
     }
 
     @Override

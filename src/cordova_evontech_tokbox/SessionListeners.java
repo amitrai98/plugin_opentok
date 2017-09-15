@@ -1,6 +1,8 @@
 package cordova_evontech_tokbox;
 
+import com.opentok.android.Connection;
 import com.opentok.android.OpentokError;
+import com.opentok.android.Session;
 import com.opentok.android.Stream;
 
 /**
@@ -23,7 +25,9 @@ public interface SessionListeners {
     void onError(OpentokError error);
     void onPluginError(String error_message);
     void videoReceived();
-    void onSessionConnected();
+    void onSessionConnected(Session session);
+    void onSignalMessageReceived(String type, String data,
+                                 Connection connection);
 
 
 

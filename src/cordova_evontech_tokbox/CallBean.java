@@ -93,7 +93,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @return
      *     The userType
      */
@@ -102,7 +102,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @param userType
      *     The UserType
      */
@@ -111,7 +111,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @return
      *     The isAbleToCall
      */
@@ -120,7 +120,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @param isAbleToCall
      *     The IsAbleToCall
      */
@@ -147,7 +147,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @return
      *     The callPerMinute
      */
@@ -156,7 +156,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @param callPerMinute
      *     The CallPerMinute
      */
@@ -165,7 +165,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @return
      *     The amount
      */
@@ -174,7 +174,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @param amount
      *     The Amount
      */
@@ -201,7 +201,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @return
      *     The isReceiverInit
      */
@@ -210,7 +210,7 @@ public class CallBean {
     }
 
     /**
-     * 
+     *
      * @param isReceiverInit
      *     The isReceiverInit
      */

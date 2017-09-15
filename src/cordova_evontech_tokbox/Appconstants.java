@@ -76,4 +76,10 @@ public class Appconstants {
     public static String ERROR_ON_CONNECT = "error while connecting";
     public static String ERROR_ON_SESSION_CONNECT = "error on session connect";
     public static String ERROR_STREAM_DROPED = "stream dropped";
+
+
+    public static final String SessionConnected = "SessionConnected";
+    public static final String ConnectionCreated = "ConnectionCreated";
+    public static final String ConnectionDestroyed = "ConnectionDestroyed";
+    public static final String SignalReceived = "SignalReceived";
 }

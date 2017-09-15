@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merger version="3"><dataSet config="main"><source path="/home/amitrai/plugin_test/plugin_demo-master/CordovaLib/assets"/><source path="/home/amitrai/plugin_test/plugin_demo-master/CordovaLib/build/generated/assets/shaders/release"/></dataSet><dataSet config="release"><source path="/home/amitrai/plugin_test/plugin_demo-master/CordovaLib/src/release/assets"/></dataSet></merger>
