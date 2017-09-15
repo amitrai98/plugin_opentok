@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DemoApp</string>
+    <string name="launcher_name">@string/app_name</string>
+    <string name="activity_name">@string/launcher_name</string>
+    <string name="connecting">Connecting...</string>
+    <string name="receiverview">Receiver View</string>
+    <string name="wait_message">Please Wait</string>
+
+</resources>
